@@ -24,6 +24,12 @@ const register = async (req, res) => {
       name: `${firstName}'s Organisation`,
       description: '',
     });
+    /* const orgId = `${firstName.replace(/\s+/g, '_')}_org_${Date.now()}`;
+    const organisation = await Organisation.create({
+      orgId,
+      name: `${firstName}'s Organisation`,
+      description: '',
+}); */
 
     await UserOrganisation.create({
       userId: user.userId,

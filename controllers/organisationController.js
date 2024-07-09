@@ -5,8 +5,9 @@ const createOrganisation = async (req, res) => {
   const userId = req.user.userId;
 
   try {
+    const orgId = `${name.replace(/\s+/g, '_')}_org_${Date.now()}`;
     const organisation = await Organisation.create({
-      orgId: `${name}_org_${Date.now()}`,
+      orgId,
       name,
       description,
     });
