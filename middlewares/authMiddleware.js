@@ -1,21 +1,29 @@
 const jwt = require('jsonwebtoken');
-require('dotenv').config();
+const { User } = require('../models');
 
-const authMiddleware = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
+const authMiddleware = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
   if (!authHeader) {
     return res.status(401).json({ message: 'Unauthorized' });
   }
 
   const token = authHeader.split(' ')[1];
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findOne({ where: { userId: decoded.userId } });
+
+    if (!user) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
-    req.user = decoded;
+
+    req.user = user;
     next();
-  });
+  } catch (error) {
+    console.error('Authentication error:', error);
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
 };
 
 module.exports = authMiddleware;

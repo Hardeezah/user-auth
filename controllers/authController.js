@@ -1,15 +1,16 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { User, Organisation, UserOrganisation } = require('../models');
-require('dotenv').config();
 
 const register = async (req, res) => {
   const { firstName, lastName, email, password, phone } = req.body;
-
+  
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
+    const userId = `${firstName}_${Date.now()}`;
+
     const user = await User.create({
-      userId: `${firstName}_${Date.now()}`,
+      userId,
       firstName,
       lastName,
       email,
@@ -17,8 +18,9 @@ const register = async (req, res) => {
       phone,
     });
 
+    const orgId = `${firstName}_org_${Date.now()}`;
     const organisation = await Organisation.create({
-      orgId: `${firstName}_org_${Date.now()}`,
+      orgId,
       name: `${firstName}'s Organisation`,
       description: '',
     });
@@ -47,16 +49,6 @@ const register = async (req, res) => {
       },
     });
   } catch (error) {
-    if (error.name === 'SequelizeUniqueConstraintError') {
-      const field = error.errors[0].path;
-      const value = error.errors[0].value;
-      return res.status(422).json({
-        errors: [{
-          field,
-          message: `${field} must be unique. ${value} already exists.`,
-        }]
-      });
-    }
     console.error('Registration error:', error);
     res.status(400).json({
       status: 'Bad request',
@@ -71,16 +63,8 @@ const login = async (req, res) => {
 
   try {
     const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(401).json({
-        status: 'Bad request',
-        message: 'Authentication failed',
-        statusCode: 401,
-      });
-    }
 
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) {
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({
         status: 'Bad request',
         message: 'Authentication failed',
@@ -106,7 +90,7 @@ const login = async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(400).json({
+    res.status(401).json({
       status: 'Bad request',
       message: 'Authentication failed',
       statusCode: 401,

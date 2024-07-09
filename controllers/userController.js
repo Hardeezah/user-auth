@@ -1,8 +1,9 @@
-const { User, Organisation, UserOrganisation } = require('../models');
+const { User } = require('../models');
 
 const getUser = async (req, res) => {
   try {
-    const user = await User.findByPk(req.params.id);
+    console.log(`Fetching user with ID: ${req.params.id}`);
+    const user = await User.findOne({ where: { userId: req.params.id } });
     if (!user) {
       return res.status(404).json({
         status: 'error',
