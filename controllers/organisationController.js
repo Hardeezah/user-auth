@@ -1,4 +1,4 @@
-const { Organisation, UserOrganisation } = require('../models');
+const { Organisation, UserOrganisation } = require('../models/index.js');
 
 const createOrganisation = async (req, res) => {
   const { name, description } = req.body;

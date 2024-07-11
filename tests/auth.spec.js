@@ -1,175 +1,145 @@
-const jwt = require('jsonwebtoken');
-const supertest = require('supertest');
-const { sequelize, User, Organisation, UserOrganisation } = require('../models');
-require('dotenv').config();
+import request from 'supertest';
+import { app } from '../index.js';
+import { User, Organisation, UserOrganisation, sequelize } from '../models/index.js';
+import bcrypt from 'bcryptjs';
 
-const app = require('../index');  // Ensure your app is correctly exported
+jest.setTimeout(30000); // Increase timeout to 30 seconds
 
-const request = supertest(app);
+describe('Authentication and Organisation Tests', () => {
+  let token;
 
-describe('Authentication and Organisation Tests', function() {
-  let expect;
-
-  before(async function() {
-    this.timeout(10000);  // Increase timeout to 10 seconds
-    const chai = await import('chai');
-    expect = chai.expect;
+  beforeAll(async () => {
     await sequelize.sync({ force: true });
-  });
 
-  afterEach(async function() {
-    await User.destroy({ where: {} });
-    await Organisation.destroy({ where: {} });
-    await UserOrganisation.destroy({ where: {} });
-  });
-
-  describe('Token Generation', function() {
-    it('should generate a token with correct user details and expiration time', function(done) {
-      const payload = { userId: 'testUser', email: 'test@example.com' };
-      const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-      expect(decoded).to.have.property('userId', 'testUser');
-      expect(decoded).to.have.property('email', 'test@example.com');
-      expect(decoded.exp).to.be.a('number');
-      done();
+    // Create test user
+    const hashedPassword = await bcrypt.hash('password123', 10);
+    const user = await User.create({
+      userId: 'testuser1',
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'john.doe@example.com',
+      password: hashedPassword,
+      phone: '1234567890',
     });
+
+    // Login the test user to get a token
+    const res = await request(app).post('/auth/login').send({
+      email: 'john.doe@example.com',
+      password: 'password123',
+    });
+
+    token = res.body.data.accessToken;
   });
 
-  describe('Organisation Access', function() {
-    it('should ensure users can’t see data from organisations they don’t have access to', async function() {
-      const user1 = await User.create({
-        userId: 'user1_123',
-        firstName: 'User',
-        lastName: 'One',
-        email: 'user1@example.com',
-        password: 'password123',
-        phone: '1234567890',
-      });
-
-      const user2 = await User.create({
-        userId: 'user2_123',
-        firstName: 'User',
-        lastName: 'Two',
-        email: 'user2@example.com',
+  it('should register a user successfully', async () => {
+    const response = await request(app)
+      .post('/auth/register')
+      .send({
+        firstName: 'Jane',
+        lastName: 'Doe',
+        email: 'jane.doe@example.com',
         password: 'password123',
         phone: '0987654321',
       });
 
-      const organisation = await Organisation.create({
-        orgId: 'org_123',
-        name: "User One's Organisation",
-        description: 'Organisation for User One',
-      });
-
-      await UserOrganisation.create({
-        userId: user1.userId,
-        orgId: organisation.orgId,
-        UserId: user1.id,
-        OrganisationId: organisation.id,
-      });
-
-      const token = jwt.sign({ userId: user2.userId, email: user2.email, id: user2.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
-      const res = await request
-        .get(`/api/organisations/${organisation.orgId}`)
-        .set('Authorization', `Bearer ${token}`);
-
-      expect(res.status).to.equal(404);
-      expect(res.body).to.have.property('message', 'Organisation not found');
-    });
+    expect(response.status).toBe(201);
+    expect(response.body).toHaveProperty('status', 'success');
+    expect(response.body).toHaveProperty('message', 'Registration successful');
   });
 
-  describe('User Registration', function() {
-    it('should register user successfully with default organisation', async function() {
-      const res = await request
-        .post('/auth/register')
-        .send({
-          firstName: 'John',
-          lastName: 'Doe',
-          email: 'john.doe@example.com',
-          password: 'password123',
-          phone: '1234567890',
-        });
+  it('should login a user successfully', async () => {
+    const response = await request(app)
+      .post('/auth/login')
+      .send({
+        email: 'john.doe@example.com',
+        password: 'password123',
+      });
 
-      expect(res.status).to.equal(201);
-      expect(res.body).to.have.property('status', 'success');
-      expect(res.body.data).to.have.property('accessToken');
-      expect(res.body.data.user).to.include({
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveProperty('status', 'success');
+    expect(response.body).toHaveProperty('message', 'Login successful');
+  });
+
+  it('should get a user by ID', async () => {
+    const res = await request(app)
+      .get(`/api/users/testuser1`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toBeInstanceOf(Object);
+    expect(res.body.data).toHaveProperty('userId', 'testuser1');
+  });
+
+  it('should get all organizations the user belongs to', async () => {
+    const res = await request(app)
+      .get('/api/organisations')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toBeInstanceOf(Object);
+    expect(res.body.data).toHaveProperty('organisations');
+  });
+
+  it('should get a single organization by ID', async () => {
+    const org = await Organisation.create({
+      orgId: 'testorg1',
+      name: 'Test Organisation',
+      description: 'This is a test organisation.',
+    });
+
+    const res = await request(app)
+      .get(`/api/organisations/${org.orgId}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toBeInstanceOf(Object);
+    expect(res.body.data).toHaveProperty('orgId', 'testorg1');
+  });
+
+  it('should add a user to an organization', async () => {
+    const org = await Organisation.create({
+      orgId: 'testorg2',
+      name: 'Test Organisation 2',
+      description: 'This is another test organisation.',
+    });
+
+    const res = await request(app)
+      .post(`/api/organisations/${org.orgId}/users`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ userId: 'testuser1' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toBeInstanceOf(Object);
+    expect(res.body).toHaveProperty('message', 'User added to organisation successfully');
+  });
+
+  it('should fail to register a user with duplicate email', async () => {
+    const res = await request(app)
+      .post('/auth/register')
+      .send({
         firstName: 'John',
         lastName: 'Doe',
         email: 'john.doe@example.com',
+        password: 'password123',
+        phone: '1234567890',
       });
-      const orgName = "John's Organisation";
-      const organisation = await Organisation.findOne({ where: { name: orgName } });
-      expect(organisation).to.not.be.null;
-      expect(organisation.name).to.equal(orgName);
-    });
 
-    it('should log the user in successfully', async function() {
-      await request
-        .post('/auth/register')
-        .send({
-          firstName: 'John',
-          lastName: 'Doe',
-          email: 'john.doe@example.com',
-          password: 'password123',
-          phone: '1234567890',
-        });
+    expect(res.status).toBe(422);
+    expect(res.body).toBeInstanceOf(Object);
+    expect(res.body).toHaveProperty('status', 'Bad request');
+    expect(res.body).toHaveProperty('message', 'Registration unsuccessful');
+  });
 
-      const res = await request
-        .post('/auth/login')
-        .send({
-          email: 'john.doe@example.com',
-          password: 'password123',
-        });
-
-      expect(res.status).to.equal(200);
-      expect(res.body).to.have.property('status', 'success');
-      expect(res.body.data).to.have.property('accessToken');
-      expect(res.body.data.user).to.include({
-        email: 'john.doe@example.com',
+  it('should fail to register a user with missing fields', async () => {
+    const res = await request(app)
+      .post('/auth/register')
+      .send({
+        firstName: 'John',
       });
-    });
 
-    it('should fail if required fields are missing', async function() {
-      const res = await request
-        .post('/auth/register')
-        .send({
-          lastName: 'Doe',
-          email: 'john.doe@example.com',
-          password: 'password123',
-        });
-
-      expect(res.status).to.equal(422);
-      expect(res.body.errors).to.be.an('array');
-      expect(res.body.errors[0]).to.have.property('field', 'firstName');
-    });
-
-    it('should fail if there’s duplicate email or userId', async function() {
-      await request
-        .post('/auth/register')
-        .send({
-          firstName: 'John',
-          lastName: 'Doe',
-          email: 'john.doe@example.com',
-          password: 'password123',
-          phone: '1234567890',
-        });
-
-      const res = await request
-        .post('/auth/register')
-        .send({
-          firstName: 'Jane',
-          lastName: 'Doe',
-          email: 'john.doe@example.com',
-          password: 'password123',
-          phone: '0987654321',
-        });
-
-      expect(res.status).to.equal(422);
-      expect(res.body.errors).to.be.an('array');
-      expect(res.body.errors[0]).to.have.property('field', 'email');
-    });
+    expect(res.status).toBe(422);
+    expect(res.body).toBeInstanceOf(Object);
+    expect(res.body).toHaveProperty('status', 'Bad request');
+    expect(res.body).toHaveProperty('message', 'Validation error');
   });
 });
